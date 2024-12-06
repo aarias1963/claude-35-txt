@@ -11,7 +11,7 @@ class ChatMessage:
         self.role = role
         self.content = content
 
-def chunk_content(text, max_chars=50000):
+def chunk_content(text, max_chars=3000):
     return text[:max_chars]
 
 def parse_text_with_pages(text):
@@ -174,11 +174,12 @@ def main():
                     formatted_messages = []
                     
                     if st.session_state.file_content:
-                        content_message = f"Documento a analizar:\n\n"
+                        content_message = "Documento a analizar. Presta especial atención a las etiquetas [Página X] que indican dónde comienza cada página:\n\n"
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            for page, content in st.session_state.pages_content.items():
-                                page_chunk = chunk_content(content, max_chars=5000)
-                                content_message += f"\n[Página {page}]\n{page_chunk}"
+                            pages_list = sorted(st.session_state.pages_content.items(), key=lambda x: x[0])
+                            for page, content in pages_list:
+                                page_chunk = chunk_content(content, max_chars=3000)
+                                content_message += f"[Página {page}]\n{page_chunk}\n\n"
                         else:
                             content_message += chunk_content(st.session_state.file_content, max_chars=50000)
                         
@@ -201,7 +202,8 @@ def main():
                             3. Organiza los resultados de forma clara, preferiblemente en formato tabular cuando sea apropiado.
                             4. Si encuentras múltiples elementos, debes listarlos TODOS, no solo algunos ejemplos.
                             5. Si la búsqueda inicial no es completa, realiza búsquedas adicionales hasta agotar todas las posibilidades.
-                            6. Confirma explícitamente cuando hayas completado la búsqueda exhaustiva."""
+                            6. Confirma explícitamente cuando hayas completado la búsqueda exhaustiva.
+                            7. Cuando te pregunten por la ubicación de ejercicios o contenido específico, asegúrate de indicar correctamente el número de página donde se encuentran, basándote en las etiquetas [Página X] del documento."""
                         )
 
                         assistant_response = response.content[0].text
