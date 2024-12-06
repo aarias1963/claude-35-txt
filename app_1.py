@@ -124,15 +124,12 @@ def main():
     st.sidebar.markdown("### 🗑️ Gestión del Chat")
     if st.sidebar.button("Limpiar Conversación", type="primary", use_container_width=True):
         st.session_state.messages = []
-        st.session_state.context_added = False
         st.rerun()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "file_content" not in st.session_state:
         st.session_state.file_content = ""
-    if "context_added" not in st.session_state:
-        st.session_state.context_added = False
 
     st.title("💬 Chat con Claude 3.5 Sonnet")
     st.markdown("""
@@ -158,7 +155,6 @@ def main():
                         st.session_state.file_content = file_content
                         st.session_state.pages_content = None
                     st.session_state.last_file = uploaded_file.name
-                    st.session_state.context_added = False
                 st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
 
         for message in st.session_state.messages:
@@ -177,31 +173,24 @@ def main():
                 try:
                     formatted_messages = []
                     
-                    if not st.session_state.context_added and st.session_state.file_content:
-                        content_message = "Contexto del archivo:\n\n"
-                        content_message += chunk_content(st.session_state.file_content)
-                        
+                    if st.session_state.file_content:
+                        content_message = f"Documento a analizar:\n\n"
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            content_message += "\n\nEstructura de páginas:\n"
-                            pages_content = ""
                             for page, content in st.session_state.pages_content.items():
-                                page_text = f"\n[Página {page}]\n{content}"
-                                if len(content_message + pages_content + page_text) < 50000:
-                                    pages_content += page_text
-                                else:
-                                    break
-                            content_message += pages_content
+                                page_chunk = chunk_content(content, max_chars=5000)
+                                content_message += f"\n[Página {page}]\n{page_chunk}"
+                        else:
+                            content_message += chunk_content(st.session_state.file_content, max_chars=50000)
                         
                         formatted_messages.append({
                             "role": "user",
                             "content": content_message
                         })
-                        st.session_state.context_added = True
 
                     for msg in st.session_state.messages:
                         formatted_messages.append({"role": msg.role, "content": msg.content})
 
-                    with st.spinner('Realizando búsqueda exhaustiva...'):
+                    with st.spinner('Analizando...'):
                         response = client.messages.create(
                             model="claude-3-5-sonnet-20241022",
                             max_tokens=4096,
