@@ -14,7 +14,7 @@ class ChatMessage:
 def chunk_content(text, max_chars=2000):
     return text[:max_chars]
 
-def get_page_chunks(pages_content, start_page=1, chunk_size=20):
+def get_page_chunks(pages_content, chunk_size=201):
     pages_list = sorted(pages_content.items(), key=lambda x: x[0])
     total_pages = len(pages_list)
     chunks = []
@@ -189,16 +189,20 @@ def main():
                     
                     if st.session_state.file_content:
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            chunks = get_page_chunks(st.session_state.pages_content)
+                            pages_list = sorted(st.session_state.pages_content.keys())
+                            pages_info = f"Este documento contiene páginas numeradas del {pages_list[0]} al {pages_list[-1]}.\n\n"
+                            
+                            chunks = get_page_chunks(st.session_state.pages_content, chunk_size=50)
                             for chunk in chunks:
-                                content_message = """INSTRUCCIONES PARA BÚSQUEDA DE EJERCICIOS:
-Los ejercicios están organizados bajo etiquetas [Pagina X].
-Cada ejercicio pertenece a la página indicada en la etiqueta anterior.
+                                content_message = f"""INSTRUCCIONES PARA BÚSQUEDA DE EJERCICIOS:
+{pages_info}
+Cada ejercicio pertenece EXACTAMENTE a la página marcada por la etiqueta [Pagina X] que lo precede.
+No debes incluir ejercicios de otras páginas.
 
-Contenido del documento:\n\n"""
+Contenido del documento (páginas {min(chunk.keys())} a {max(chunk.keys())}):\n\n"""
+                                
                                 for page, content in sorted(chunk.items()):
-                                    page_chunk = chunk_content(content, max_chars=2000)
-                                    content_message += f"\n{page_chunk}\n"
+                                    content_message += f"{content}\n\n"
                                 
                                 formatted_messages.append({
                                     "role": "user",
@@ -222,18 +226,18 @@ Contenido del documento:\n\n"""
                             system="""Eres un asistente especializado en análisis exhaustivo de documentos. REGLAS FUNDAMENTALES:
 
 1. Cuando te pregunten por ejercicios de una página específica:
-   - SOLO debes listar los ejercicios que aparecen después de la etiqueta [Pagina X] solicitada
-   - El contenido de esa página termina cuando encuentres la siguiente etiqueta [Pagina]
-   - Si te preguntan por ejercicios específicos, debes indicar en qué página están
+   - ÚNICAMENTE debes mostrar los ejercicios que aparecen después de la etiqueta [Pagina X] exacta que corresponda
+   - Los ejercicios pertenecen SOLO a la página indicada en la etiqueta que los precede inmediatamente
+   - No incluyas ejercicios de otras páginas
 
-2. Para cualquier búsqueda de ejercicios:
+2. Para búsquedas de ejercicios:
    - Busca la etiqueta [Pagina X] correspondiente
-   - Lista TODOS los ejercicios que encuentres en esa sección
-   - Indica siempre el número de página donde se encuentran
+   - Lista SOLAMENTE los ejercicios de esa página específica
+   - Indica siempre el número de página correcto
 
-3. Realiza búsquedas EXHAUSTIVAS y no omitas ningún resultado.
-4. Confirma explícitamente cuando hayas completado la búsqueda.
-5. IMPORTANTE: Busca en TODO el documento proporcionado."""
+3. Realiza búsquedas en TODO el contenido proporcionado
+4. No omitas ningún resultado que corresponda a la página solicitada
+5. Confirma cuando hayas completado la búsqueda exhaustiva"""
                         )
 
                         assistant_response = response.content[0].text
