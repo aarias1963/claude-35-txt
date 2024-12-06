@@ -11,7 +11,7 @@ class ChatMessage:
         self.role = role
         self.content = content
 
-def chunk_content(text, max_chars=1000):
+def chunk_content(text, max_chars=500):
     return text[:max_chars]
 
 def parse_text_with_pages(text):
@@ -118,9 +118,6 @@ def main():
         layout="wide"
     )
 
-    if "current_page_group" not in st.session_state:
-        st.session_state.current_page_group = 0
-
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
 
@@ -130,7 +127,6 @@ def main():
     st.sidebar.markdown("### 🗑️ Gestión del Chat")
     if st.sidebar.button("Limpiar Conversación", type="primary", use_container_width=True):
         st.session_state.messages = []
-        st.session_state.current_page_group = 0
         st.rerun()
 
     if "messages" not in st.session_state:
@@ -183,21 +179,24 @@ def main():
                     if st.session_state.file_content:
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
                             pages_list = sorted(st.session_state.pages_content.items())
+                            max_chunk_size = 500
                             total_pages = len(pages_list)
-                            start_idx = st.session_state.current_page_group * 10
-                            end_idx = min(start_idx + 10, total_pages)
                             
-                            current_pages = dict(pages_list[start_idx:end_idx])
-                            content_message = f"Contenido páginas {min(current_pages.keys())} a {max(current_pages.keys())}:\n\n"
-                            for page, content in current_pages.items():
-                                content_message += f"{content}\n\n"
-                            
-                            formatted_messages.append({
-                                "role": "user",
-                                "content": content_message
-                            })
-                            
-                            st.session_state.current_page_group = (st.session_state.current_page_group + 1) % ((total_pages + 9) // 10)
+                            num_chunks = (total_pages + 4) // 5
+                            for i in range(num_chunks):
+                                start_idx = i * 5
+                                end_idx = min(start_idx + 5, total_pages)
+                                
+                                current_pages = dict(pages_list[start_idx:end_idx])
+                                content_message = f"\n--- Grupo de páginas {min(current_pages.keys())} a {max(current_pages.keys())} ---\n\n"
+                                
+                                for page, content in current_pages.items():
+                                    content_message += f"{content[:max_chunk_size]}\n\n"
+                                
+                                formatted_messages.append({
+                                    "role": "user",
+                                    "content": content_message
+                                })
                         else:
                             content_message = "Contenido del documento:\n\n"
                             content_message += chunk_content(st.session_state.file_content, max_chars=50000)
@@ -214,16 +213,10 @@ def main():
                             max_tokens=4096,
                             messages=formatted_messages,
                             system="""Eres un asistente especializado en análisis de documentos. REGLAS:
-
-1. Ubicación de ejercicios:
-   - Usa SOLO la etiqueta [Pagina X] que precede al ejercicio
-   - Lista los ejercicios bajo esa etiqueta exacta
-   - Los ejercicios pertenecen a la página de su etiqueta anterior más cercana
-
-2. Para cada búsqueda:
-   - Busca en todas las páginas proporcionadas
-   - Lista todos los resultados relevantes
-   - Incluye siempre el número de página exacto"""
+1. Los ejercicios pertenecen a la página indicada en la etiqueta [Pagina X] que los precede
+2. Busca en TODAS las páginas proporcionadas
+3. Especifica el número exacto de página para cada ejercicio
+4. Mantén respuestas concisas pero completas"""
                         )
 
                         assistant_response = response.content[0].text
