@@ -11,8 +11,19 @@ class ChatMessage:
         self.role = role
         self.content = content
 
-def chunk_content(text, max_chars=3000):
+def chunk_content(text, max_chars=2000):
     return text[:max_chars]
+
+def get_page_chunks(pages_content, start_page=1, chunk_size=20):
+    pages_list = sorted(pages_content.items(), key=lambda x: x[0])
+    total_pages = len(pages_list)
+    chunks = []
+    
+    for i in range(0, total_pages, chunk_size):
+        chunk = dict(pages_list[i:i + chunk_size])
+        chunks.append(chunk)
+    
+    return chunks
 
 def parse_text_with_pages(text):
     pages = {}
@@ -177,31 +188,31 @@ def main():
                     formatted_messages = []
                     
                     if st.session_state.file_content:
-                        content_message = """INSTRUCCIONES PARA BÚSQUEDA DE EJERCICIOS:
-Cada ejercicio pertenece a una página específica.
-Los ejercicios están organizados bajo etiquetas [Pagina X].
-Para encontrar ejercicios de una página específica:
-1. Busca la etiqueta [Pagina X] correspondiente
-2. Los ejercicios listados bajo esa etiqueta pertenecen a esa página
-3. El contenido de cada página termina cuando aparece la siguiente etiqueta [Pagina]
-
-Contenido del documento:
-"""
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            pages_list = sorted(st.session_state.pages_content.items(), key=lambda x: x[0])
-                            for page, content in pages_list:
-                                page_chunk = chunk_content(content, max_chars=3000)
-                                content_message += f"\n{page_chunk}\n"
-                        else:
-                            content_message += chunk_content(st.session_state.file_content, max_chars=50000)
-                        
-                        formatted_messages.append({
-                            "role": "user",
-                            "content": content_message
-                        })
+                            chunks = get_page_chunks(st.session_state.pages_content)
+                            for chunk in chunks:
+                                content_message = """INSTRUCCIONES PARA BÚSQUEDA DE EJERCICIOS:
+Los ejercicios están organizados bajo etiquetas [Pagina X].
+Cada ejercicio pertenece a la página indicada en la etiqueta anterior.
 
-                    for msg in st.session_state.messages:
-                        formatted_messages.append({"role": msg.role, "content": msg.content})
+Contenido del documento:\n\n"""
+                                for page, content in sorted(chunk.items()):
+                                    page_chunk = chunk_content(content, max_chars=2000)
+                                    content_message += f"\n{page_chunk}\n"
+                                
+                                formatted_messages.append({
+                                    "role": "user",
+                                    "content": content_message
+                                })
+                        else:
+                            content_message = "Contenido del documento:\n\n"
+                            content_message += chunk_content(st.session_state.file_content, max_chars=50000)
+                            formatted_messages.append({
+                                "role": "user",
+                                "content": content_message
+                            })
+
+                    formatted_messages.append({"role": "user", "content": prompt})
 
                     with st.spinner('Analizando...'):
                         response = client.messages.create(
@@ -221,7 +232,8 @@ Contenido del documento:
    - Indica siempre el número de página donde se encuentran
 
 3. Realiza búsquedas EXHAUSTIVAS y no omitas ningún resultado.
-4. Confirma explícitamente cuando hayas completado la búsqueda."""
+4. Confirma explícitamente cuando hayas completado la búsqueda.
+5. IMPORTANTE: Busca en TODO el documento proporcionado."""
                         )
 
                         assistant_response = response.content[0].text
