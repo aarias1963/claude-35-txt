@@ -18,20 +18,22 @@ def parse_text_with_pages(text):
     pages = {}
     current_page = None
     current_content = []
+    current_header = ""
     
     lines = text.split('\n')
     for i, line in enumerate(lines):
         if match := re.match(r'\[Pagina (\d+)\]', line, re.IGNORECASE):
             if current_page:
-                pages[current_page] = '\n'.join(current_content)
+                pages[current_page] = current_header + '\n'.join(current_content)
             current_page = int(match.group(1))
+            current_header = line + '\n'
             current_content = []
             next_page_index = next((j for j, l in enumerate(lines[i+1:], i+1) 
                                   if re.match(r'\[Pagina \d+\]', l, re.IGNORECASE)), len(lines))
             current_content = lines[i+1:next_page_index]
     
     if current_page and current_content:
-        pages[current_page] = '\n'.join(current_content)
+        pages[current_page] = current_header + '\n'.join(current_content)
     
     return pages
 
@@ -175,16 +177,21 @@ def main():
                     formatted_messages = []
                     
                     if st.session_state.file_content:
-                        content_message = """INSTRUCCIONES DE FORMATO:
-Este documento contiene ejercicios organizados por páginas. Cada sección comienza con una etiqueta [Pagina X].
-REGLA IMPORTANTE: Cuando busques ejercicios, DEBES usar la etiqueta [Pagina X] que aparece inmediatamente ANTES del ejercicio para determinar su ubicación.
+                        content_message = """INSTRUCCIONES PARA BÚSQUEDA DE EJERCICIOS:
+Cada ejercicio pertenece a una página específica.
+Los ejercicios están organizados bajo etiquetas [Pagina X].
+Para encontrar ejercicios de una página específica:
+1. Busca la etiqueta [Pagina X] correspondiente
+2. Los ejercicios listados bajo esa etiqueta pertenecen a esa página
+3. El contenido de cada página termina cuando aparece la siguiente etiqueta [Pagina]
 
-CONTENIDO:\n\n"""
+Contenido del documento:
+"""
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
                             pages_list = sorted(st.session_state.pages_content.items(), key=lambda x: x[0])
                             for page, content in pages_list:
                                 page_chunk = chunk_content(content, max_chars=3000)
-                                content_message += f"----------------------------------------\n[Pagina {page}]\n----------------------------------------\n{page_chunk}\n\n"
+                                content_message += f"\n{page_chunk}\n"
                         else:
                             content_message += chunk_content(st.session_state.file_content, max_chars=50000)
                         
@@ -203,14 +210,18 @@ CONTENIDO:\n\n"""
                             messages=formatted_messages,
                             system="""Eres un asistente especializado en análisis exhaustivo de documentos. REGLAS FUNDAMENTALES:
 
-1. Para CUALQUIER pregunta sobre la ubicación de ejercicios:
-   - SIEMPRE busca la etiqueta [Pagina X] que aparece justo ANTES del ejercicio
-   - El ejercicio pertenece a esa página, sin excepciones
-   - Incluye SIEMPRE el número de página en tu respuesta
+1. Cuando te pregunten por ejercicios de una página específica:
+   - SOLO debes listar los ejercicios que aparecen después de la etiqueta [Pagina X] solicitada
+   - El contenido de esa página termina cuando encuentres la siguiente etiqueta [Pagina]
+   - Si te preguntan por ejercicios específicos, debes indicar en qué página están
 
-2. Realiza búsquedas EXHAUSTIVAS de todos los elementos solicitados
-3. No omitas ningún resultado que cumpla con los criterios
-4. Confirma explícitamente cuando hayas completado la búsqueda"""
+2. Para cualquier búsqueda de ejercicios:
+   - Busca la etiqueta [Pagina X] correspondiente
+   - Lista TODOS los ejercicios que encuentres en esa sección
+   - Indica siempre el número de página donde se encuentran
+
+3. Realiza búsquedas EXHAUSTIVAS y no omitas ningún resultado.
+4. Confirma explícitamente cuando hayas completado la búsqueda."""
                         )
 
                         assistant_response = response.content[0].text
