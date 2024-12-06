@@ -175,15 +175,16 @@ def main():
                     formatted_messages = []
                     
                     if st.session_state.file_content:
-                        content_message = """Documento a analizar. El formato es el siguiente:
-[Pagina X] seguido de los ejercicios que están en esa página.
-Los ejercicios de cada página están entre su etiqueta [Pagina X] y la siguiente etiqueta [Pagina Y].
-Cuando te pregunten por ejercicios, indica SIEMPRE su página basándote en este formato:\n\n"""
+                        content_message = """INSTRUCCIONES DE FORMATO:
+Este documento contiene ejercicios organizados por páginas. Cada sección comienza con una etiqueta [Pagina X].
+REGLA IMPORTANTE: Cuando busques ejercicios, DEBES usar la etiqueta [Pagina X] que aparece inmediatamente ANTES del ejercicio para determinar su ubicación.
+
+CONTENIDO:\n\n"""
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
                             pages_list = sorted(st.session_state.pages_content.items(), key=lambda x: x[0])
                             for page, content in pages_list:
                                 page_chunk = chunk_content(content, max_chars=3000)
-                                content_message += f"[Pagina {page}]\n{page_chunk}\n\n"
+                                content_message += f"----------------------------------------\n[Pagina {page}]\n----------------------------------------\n{page_chunk}\n\n"
                         else:
                             content_message += chunk_content(st.session_state.file_content, max_chars=50000)
                         
@@ -200,14 +201,16 @@ Cuando te pregunten por ejercicios, indica SIEMPRE su página basándote en este
                             model="claude-3-5-sonnet-20241022",
                             max_tokens=4096,
                             messages=formatted_messages,
-                            system="""Eres un asistente especializado en análisis exhaustivo de documentos. Cuando se te pida buscar o analizar información:
-                            1. Realiza una búsqueda EXHAUSTIVA y COMPLETA de TODAS las actividades, ejercicios o elementos que cumplan con los criterios especificados.
-                            2. No omitas ningún resultado que cumpla con los criterios de búsqueda.
-                            3. Organiza los resultados de forma clara, preferiblemente en formato tabular cuando sea apropiado.
-                            4. Si encuentras múltiples elementos, debes listarlos TODOS, no solo algunos ejemplos.
-                            5. Si la búsqueda inicial no es completa, realiza búsquedas adicionales hasta agotar todas las posibilidades.
-                            6. Confirma explícitamente cuando hayas completado la búsqueda exhaustiva.
-                            7. IMPORTANTE: Para identificar la página de un ejercicio, debes fijarte en la etiqueta [Pagina X] que lo precede. Todo el contenido que aparece después de una etiqueta [Pagina X] pertenece a esa página, hasta que encuentres la siguiente etiqueta [Pagina Y]."""
+                            system="""Eres un asistente especializado en análisis exhaustivo de documentos. REGLAS FUNDAMENTALES:
+
+1. Para CUALQUIER pregunta sobre la ubicación de ejercicios:
+   - SIEMPRE busca la etiqueta [Pagina X] que aparece justo ANTES del ejercicio
+   - El ejercicio pertenece a esa página, sin excepciones
+   - Incluye SIEMPRE el número de página en tu respuesta
+
+2. Realiza búsquedas EXHAUSTIVAS de todos los elementos solicitados
+3. No omitas ningún resultado que cumpla con los criterios
+4. Confirma explícitamente cuando hayas completado la búsqueda"""
                         )
 
                         assistant_response = response.content[0].text
