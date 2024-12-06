@@ -11,6 +11,9 @@ class ChatMessage:
         self.role = role
         self.content = content
 
+def chunk_content(text, max_chars=50000):
+    return text[:max_chars]
+
 def parse_text_with_pages(text):
     pages = {}
     current_page = None
@@ -75,13 +78,10 @@ def detect_and_convert_csv(text):
     for i, block in enumerate(csv_blocks):
         try:
             block_id = str(uuid.uuid4())
-            
             df = pd.read_csv(io.StringIO('\n'.join(block)))
-            
             st.dataframe(df)
             
             col1, col2 = st.columns(2)
-            
             csv_data = df.to_csv(index=False)
             with col1:
                 st.download_button(
@@ -148,10 +148,10 @@ def main():
             if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
                 with st.spinner("Procesando archivo..."):
                     file_content = extract_text_from_file(uploaded_file)
-                    if isinstance(file_content, dict):  # Para archivos TXT
+                    if isinstance(file_content, dict):
                         st.session_state.file_content = file_content["text"]
                         st.session_state.pages_content = file_content["pages"]
-                    else:  # Para archivos PDF
+                    else:
                         st.session_state.file_content = file_content
                         st.session_state.pages_content = None
                     st.session_state.last_file = uploaded_file.name
@@ -169,29 +169,29 @@ def main():
             with st.chat_message("user"):
                 st.write(prompt)
 
-           with st.chat_message("assistant"):
-            try:
-                formatted_messages = []
-            
-                if st.session_state.file_content:
-                    content_message = f"Contexto del archivo:\n\n"
-                    content_message += chunk_content(st.session_state.file_content)
-                
-                    if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                        content_message += "\n\nEstructura de páginas:\n"
-                        pages_content = ""
-                        for page, content in st.session_state.pages_content.items():
-                            page_text = f"\n[Página {page}]\n{content}"
-                            if len(content_message + pages_content + page_text) < 50000:
-                                pages_content += page_text
-                            else:
-                                break
-                        content_message += pages_content
-                
-                    formatted_messages.append({
-                        "role": "user",
-                        "content": content_message
-                    })
+            with st.chat_message("assistant"):
+                try:
+                    formatted_messages = []
+                    
+                    if st.session_state.file_content:
+                        content_message = "Contexto del archivo:\n\n"
+                        content_message += chunk_content(st.session_state.file_content)
+                        
+                        if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
+                            content_message += "\n\nEstructura de páginas:\n"
+                            pages_content = ""
+                            for page, content in st.session_state.pages_content.items():
+                                page_text = f"\n[Página {page}]\n{content}"
+                                if len(content_message + pages_content + page_text) < 50000:
+                                    pages_content += page_text
+                                else:
+                                    break
+                            content_message += pages_content
+                        
+                        formatted_messages.append({
+                            "role": "user",
+                            "content": content_message
+                        })
 
                     for msg in st.session_state.messages:
                         formatted_messages.append({"role": msg.role, "content": msg.content})
