@@ -19,15 +19,16 @@ def parse_text_with_pages(text):
     current_page = None
     current_content = []
     
-    for line in text.split('\n'):
-        if match := re.match(r'\[Página (\d+)\]', line):
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        if match := re.match(r'\[Pagina (\d+)\]', line, re.IGNORECASE):
             if current_page:
                 pages[current_page] = '\n'.join(current_content)
             current_page = int(match.group(1))
             current_content = []
-        else:
-            if current_page is not None:
-                current_content.append(line)
+            next_page_index = next((j for j, l in enumerate(lines[i+1:], i+1) 
+                                  if re.match(r'\[Pagina \d+\]', l, re.IGNORECASE)), len(lines))
+            current_content = lines[i+1:next_page_index]
     
     if current_page and current_content:
         pages[current_page] = '\n'.join(current_content)
@@ -174,12 +175,15 @@ def main():
                     formatted_messages = []
                     
                     if st.session_state.file_content:
-                        content_message = "Documento a analizar. Presta especial atención a las etiquetas [Página X] que indican dónde comienza cada página:\n\n"
+                        content_message = """Documento a analizar. El formato es el siguiente:
+[Pagina X] seguido de los ejercicios que están en esa página.
+Los ejercicios de cada página están entre su etiqueta [Pagina X] y la siguiente etiqueta [Pagina Y].
+Cuando te pregunten por ejercicios, indica SIEMPRE su página basándote en este formato:\n\n"""
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
                             pages_list = sorted(st.session_state.pages_content.items(), key=lambda x: x[0])
                             for page, content in pages_list:
                                 page_chunk = chunk_content(content, max_chars=3000)
-                                content_message += f"[Página {page}]\n{page_chunk}\n\n"
+                                content_message += f"[Pagina {page}]\n{page_chunk}\n\n"
                         else:
                             content_message += chunk_content(st.session_state.file_content, max_chars=50000)
                         
@@ -203,7 +207,7 @@ def main():
                             4. Si encuentras múltiples elementos, debes listarlos TODOS, no solo algunos ejemplos.
                             5. Si la búsqueda inicial no es completa, realiza búsquedas adicionales hasta agotar todas las posibilidades.
                             6. Confirma explícitamente cuando hayas completado la búsqueda exhaustiva.
-                            7. Cuando te pregunten por la ubicación de ejercicios o contenido específico, asegúrate de indicar correctamente el número de página donde se encuentran, basándote en las etiquetas [Página X] del documento."""
+                            7. IMPORTANTE: Para identificar la página de un ejercicio, debes fijarte en la etiqueta [Pagina X] que lo precede. Todo el contenido que aparece después de una etiqueta [Pagina X] pertenece a esa página, hasta que encuentres la siguiente etiqueta [Pagina Y]."""
                         )
 
                         assistant_response = response.content[0].text
