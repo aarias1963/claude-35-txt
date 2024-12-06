@@ -169,21 +169,29 @@ def main():
             with st.chat_message("user"):
                 st.write(prompt)
 
-            with st.chat_message("assistant"):
-                try:
-                    formatted_messages = []
-                    
-                    if st.session_state.file_content:
-                        content_message = f"Contexto del archivo:\n\n{st.session_state.file_content}"
-                        if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            content_message += "\n\nEstructura de páginas:\n"
-                            for page, content in st.session_state.pages_content.items():
-                                content_message += f"\n[Página {page}]\n{content}"
-                        
-                        formatted_messages.append({
-                            "role": "user",
-                            "content": content_message
-                        })
+           with st.chat_message("assistant"):
+        try:
+            formatted_messages = []
+            
+            if st.session_state.file_content:
+                content_message = f"Contexto del archivo:\n\n"
+                content_message += chunk_content(st.session_state.file_content)
+                
+                if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
+                    content_message += "\n\nEstructura de páginas:\n"
+                    pages_content = ""
+                    for page, content in st.session_state.pages_content.items():
+                        page_text = f"\n[Página {page}]\n{content}"
+                        if len(content_message + pages_content + page_text) < 50000:
+                            pages_content += page_text
+                        else:
+                            break
+                    content_message += pages_content
+                
+                formatted_messages.append({
+                    "role": "user",
+                    "content": content_message
+                })
 
                     for msg in st.session_state.messages:
                         formatted_messages.append({"role": msg.role, "content": msg.content})
