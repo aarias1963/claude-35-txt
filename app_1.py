@@ -11,21 +11,8 @@ class ChatMessage:
         self.role = role
         self.content = content
 
-def chunk_content(text, max_chars=2000):
+def chunk_content(text, max_chars=1000):
     return text[:max_chars]
-
-def get_page_groups(pages_content):
-    pages_list = sorted(pages_content.items(), key=lambda x: x[0])
-    total_pages = len(pages_list)
-    groups = []
-    
-    start = 0
-    while start < total_pages:
-        end = min(start + 40, total_pages)
-        groups.append(dict(pages_list[start:end]))
-        start = end
-    
-    return groups
 
 def parse_text_with_pages(text):
     pages = {}
@@ -131,6 +118,9 @@ def main():
         layout="wide"
     )
 
+    if "current_page_group" not in st.session_state:
+        st.session_state.current_page_group = 0
+
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
 
@@ -140,6 +130,7 @@ def main():
     st.sidebar.markdown("### 🗑️ Gestión del Chat")
     if st.sidebar.button("Limpiar Conversación", type="primary", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.current_page_group = 0
         st.rerun()
 
     if "messages" not in st.session_state:
@@ -191,18 +182,22 @@ def main():
                     
                     if st.session_state.file_content:
                         if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            groups = get_page_groups(st.session_state.pages_content)
-                            pages_list = sorted(st.session_state.pages_content.keys())
-                            pages_info = f"Documento con páginas {pages_list[0]} a {pages_list[-1]}.\n\n"
+                            pages_list = sorted(st.session_state.pages_content.items())
+                            total_pages = len(pages_list)
+                            start_idx = st.session_state.current_page_group * 10
+                            end_idx = min(start_idx + 10, total_pages)
                             
-                            for group in groups:
-                                content_message = f"""{pages_info}Contenido (páginas {min(group.keys())} a {max(group.keys())}):\n\n"""
-                                for page, content in sorted(group.items()):
-                                    content_message += f"{content}\n\n"
-                                formatted_messages.append({
-                                    "role": "user",
-                                    "content": content_message
-                                })
+                            current_pages = dict(pages_list[start_idx:end_idx])
+                            content_message = f"Contenido páginas {min(current_pages.keys())} a {max(current_pages.keys())}:\n\n"
+                            for page, content in current_pages.items():
+                                content_message += f"{content}\n\n"
+                            
+                            formatted_messages.append({
+                                "role": "user",
+                                "content": content_message
+                            })
+                            
+                            st.session_state.current_page_group = (st.session_state.current_page_group + 1) % ((total_pages + 9) // 10)
                         else:
                             content_message = "Contenido del documento:\n\n"
                             content_message += chunk_content(st.session_state.file_content, max_chars=50000)
@@ -218,20 +213,17 @@ def main():
                             model="claude-3-5-sonnet-20241022",
                             max_tokens=4096,
                             messages=formatted_messages,
-                            system="""Eres un asistente especializado en análisis exhaustivo de documentos. REGLAS FUNDAMENTALES:
+                            system="""Eres un asistente especializado en análisis de documentos. REGLAS:
 
-1. Para ubicar ejercicios en una página específica:
-   - Busca EXACTAMENTE la página solicitada usando su etiqueta [Pagina X]
-   - Lista SOLO los ejercicios que aparecen bajo esa etiqueta exacta
-   - Los ejercicios pertenecen a la página de su etiqueta más cercana anterior
+1. Ubicación de ejercicios:
+   - Usa SOLO la etiqueta [Pagina X] que precede al ejercicio
+   - Lista los ejercicios bajo esa etiqueta exacta
+   - Los ejercicios pertenecen a la página de su etiqueta anterior más cercana
 
-2. Para cualquier búsqueda:
-   - Busca en TODAS las páginas proporcionadas
-   - No omitas ningún resultado relevante
-   - Menciona siempre el número de página exacto
-   - Confirma cuando hayas completado la búsqueda
-   
-3. IMPORTANTE: Analiza TODOS los grupos de páginas antes de responder"""
+2. Para cada búsqueda:
+   - Busca en todas las páginas proporcionadas
+   - Lista todos los resultados relevantes
+   - Incluye siempre el número de página exacto"""
                         )
 
                         assistant_response = response.content[0].text
