@@ -124,12 +124,15 @@ def main():
     st.sidebar.markdown("### 🗑️ Gestión del Chat")
     if st.sidebar.button("Limpiar Conversación", type="primary", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.context_added = False
         st.rerun()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "file_content" not in st.session_state:
         st.session_state.file_content = ""
+    if "context_added" not in st.session_state:
+        st.session_state.context_added = False
 
     st.title("💬 Chat con Claude 3.5 Sonnet")
     st.markdown("""
@@ -155,6 +158,7 @@ def main():
                         st.session_state.file_content = file_content
                         st.session_state.pages_content = None
                     st.session_state.last_file = uploaded_file.name
+                    st.session_state.context_added = False
                 st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
 
         for message in st.session_state.messages:
@@ -173,7 +177,7 @@ def main():
                 try:
                     formatted_messages = []
                     
-                    if st.session_state.file_content:
+                    if not st.session_state.context_added and st.session_state.file_content:
                         content_message = "Contexto del archivo:\n\n"
                         content_message += chunk_content(st.session_state.file_content)
                         
@@ -192,6 +196,7 @@ def main():
                             "role": "user",
                             "content": content_message
                         })
+                        st.session_state.context_added = True
 
                     for msg in st.session_state.messages:
                         formatted_messages.append({"role": msg.role, "content": msg.content})
