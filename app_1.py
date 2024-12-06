@@ -11,6 +11,26 @@ class ChatMessage:
         self.role = role
         self.content = content
 
+def parse_text_with_pages(text):
+    pages = {}
+    current_page = None
+    current_content = []
+    
+    for line in text.split('\n'):
+        if match := re.match(r'\[Página (\d+)\]', line):
+            if current_page:
+                pages[current_page] = '\n'.join(current_content)
+            current_page = int(match.group(1))
+            current_content = []
+        else:
+            if current_page is not None:
+                current_content.append(line)
+    
+    if current_page and current_content:
+        pages[current_page] = '\n'.join(current_content)
+    
+    return pages
+
 def extract_text_from_file(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -20,7 +40,9 @@ def extract_text_from_file(uploaded_file):
                 text += page.extract_text() + "\n"
             return text
         elif uploaded_file.type == "text/plain":
-            return uploaded_file.getvalue().decode("utf-8")
+            text = uploaded_file.getvalue().decode("utf-8")
+            pages = parse_text_with_pages(text)
+            return {"text": text, "pages": pages}
         else:
             return "Formato de archivo no soportado"
     except Exception as e:
@@ -125,7 +147,13 @@ def main():
         if uploaded_file:
             if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
                 with st.spinner("Procesando archivo..."):
-                    st.session_state.file_content = extract_text_from_file(uploaded_file)
+                    file_content = extract_text_from_file(uploaded_file)
+                    if isinstance(file_content, dict):  # Para archivos TXT
+                        st.session_state.file_content = file_content["text"]
+                        st.session_state.pages_content = file_content["pages"]
+                    else:  # Para archivos PDF
+                        st.session_state.file_content = file_content
+                        st.session_state.pages_content = None
                     st.session_state.last_file = uploaded_file.name
                 st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
 
@@ -146,9 +174,15 @@ def main():
                     formatted_messages = []
                     
                     if st.session_state.file_content:
+                        content_message = f"Contexto del archivo:\n\n{st.session_state.file_content}"
+                        if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
+                            content_message += "\n\nEstructura de páginas:\n"
+                            for page, content in st.session_state.pages_content.items():
+                                content_message += f"\n[Página {page}]\n{content}"
+                        
                         formatted_messages.append({
                             "role": "user",
-                            "content": f"Contexto del archivo:\n\n{st.session_state.file_content}"
+                            "content": content_message
                         })
 
                     for msg in st.session_state.messages:
