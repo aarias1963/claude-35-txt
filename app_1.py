@@ -32,13 +32,13 @@ def create_csv_from_exercises(exercises: List[Exercise]) -> str:
 
 def parse_exercises_from_response(response: str) -> List[Exercise]:
     exercises = []
-    exercise_pattern = r'Ejercicio[s]?\s*(\d+)[^\d]*?(?:Página\s*(\d+))?[^\n]*?:(.*?)(?=Ejercicio|\Z)'
+    exercise_pattern = r'Ejercicio[s]?\s*(\d+)\s*\(Página\s*(\d+)\):\s*(.*?)(?=Ejercicio|\Z)'
     matches = re.finditer(exercise_pattern, response, re.DOTALL | re.IGNORECASE)
     for match in matches:
         number = match.group(1)
-        page = match.group(2) if match.group(2) else 0
+        page = int(match.group(2))  # Asegurar que siempre hay número de página
         description = match.group(3).strip()
-        exercises.append(Exercise(number, int(page), description, ""))
+        exercises.append(Exercise(number, page, description, ""))
     return exercises
 
 def chunk_pages_into_files(pages_content: Dict[int, str], pages_per_chunk: int = 25) -> List[Dict[int, str]]:
@@ -86,47 +86,6 @@ def parse_text_with_pages(text):
         st.error(f"Error en parse_text_with_pages: {str(e)}")
         st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
         raise e
-
-def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> str:
-    formatted_messages = []
-    content_message = f"""Analizando {chunk_info}:
-    
-Para cada ejercicio encontrado, proporciona:
-1. Número de ejercicio
-2. Número de página
-3. Descripción detallada
-4. Relación con el estándar solicitado
-
-Contenido a analizar:
-"""
-    
-    for page, content in sorted(chunk.items()):
-        content_message += f"[Página {page}]\n{content}\n\n"
-    
-    formatted_messages.append({
-        "role": "user",
-        "content": content_message
-    })
-    formatted_messages.append({"role": "user", "content": prompt})
-    
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=4096,
-        messages=formatted_messages,
-        system="""Eres un asistente especializado en análisis de ejercicios educativos. REGLAS:
-
-1. Analiza cada ejercicio buscando relación con el estándar solicitado
-2. Para cada ejercicio relevante proporciona:
-   - Número exacto del ejercicio
-   - Número de página donde se encuentra
-   - Descripción clara del ejercicio
-   - Explicación de cómo cumple con el estándar
-3. Usa un formato consistente:
-   Ejercicio X (Página Y): Descripción
-4. No omitas ningún ejercicio que cumpla con los criterios"""
-    )
-    
-    return response.content[0].text
 
 def detect_and_convert_csv(text):
     lines = text.split('\n')
@@ -185,6 +144,46 @@ def detect_and_convert_csv(text):
             st.error(f"Error al procesar datos tabulares: {str(e)}")
             st.text('\n'.join(block))
 
+def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> str:
+    formatted_messages = []
+    content_message = f"""Analizando {chunk_info}:
+    
+Para cada ejercicio que cumpla con el estándar solicitado, proporciona:
+1. Número exacto del ejercicio
+2. Número exacto de página donde se encuentra
+3. Descripción detallada
+4. Explicación de cómo cumple con el estándar
+
+IMPORTANTE: Usa EXACTAMENTE este formato para cada ejercicio:
+Ejercicio X (Página Y): Descripción
+
+Contenido a analizar:
+"""
+    
+    for page, content in sorted(chunk.items()):
+        content_message += f"[Página {page}]\n{content}\n\n"
+    
+    formatted_messages.append({
+        "role": "user",
+        "content": content_message
+    })
+    formatted_messages.append({"role": "user", "content": prompt})
+    
+    response = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=4096,
+        messages=formatted_messages,
+        system="""Eres un asistente especializado en análisis de ejercicios educativos. REGLAS:
+
+1. Para CADA ejercicio encontrado, usa EXACTAMENTE este formato:
+   Ejercicio X (Página Y): Descripción detallada
+2. SIEMPRE incluye el número de página entre paréntesis
+3. La descripción debe ser clara y detallada
+4. Analiza SOLO ejercicios que cumplan con el estándar solicitado
+5. No omitas ningún ejercicio que cumpla con los criterios"""
+    )
+    
+    return response.content[0].text
 def main():
     st.set_page_config(
         page_title="Análisis de Ejercicios",
@@ -201,8 +200,10 @@ def main():
         st.session_state.last_file = None
     if "combined_response" not in st.session_state:
         st.session_state.combined_response = ""
-    if "exercises" not in st.session_state:
-        st.session_state.exercises = []
+    if "current_exercises" not in st.session_state:
+        st.session_state.current_exercises = []
+    if "current_df" not in st.session_state:
+        st.session_state.current_df = None
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -263,7 +264,34 @@ def main():
                 st.error(f"Error al procesar el archivo: {str(e)}")
                 st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
 
-        # Mostrar mensajes anteriores
+        # Mostrar resultados anteriores si existen
+        if "current_df" in st.session_state and st.session_state.current_df is not None:
+            st.write("### Resultados del Análisis Anterior")
+            st.dataframe(st.session_state.current_df)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                csv_data = st.session_state.current_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Descargar CSV",
+                    data=csv_data,
+                    file_name="analisis_ejercicios.csv",
+                    mime="text/csv",
+                    key="download_csv_previous"
+                )
+            with col2:
+                excel_buffer = io.BytesIO()
+                st.session_state.current_df.to_excel(excel_buffer, index=False)
+                excel_buffer.seek(0)
+                st.download_button(
+                    label="📥 Descargar Excel",
+                    data=excel_buffer,
+                    file_name="analisis_ejercicios.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_excel_previous"
+                )
+
+        # Mostrar historial de mensajes
         for message in st.session_state.messages:
             with st.chat_message(message.role):
                 if message.role == "assistant":
@@ -309,9 +337,11 @@ def main():
                         
                         status_text.text("Análisis completado!")
                         
-                        # Mostrar resultados
+                        # Guardar y mostrar resultados
                         if all_exercises:
                             st.write("### Resultados del Análisis")
+                            st.session_state.current_exercises = all_exercises
+                            
                             df = pd.DataFrame([
                                 {
                                     'Ejercicio': ex.number,
@@ -321,33 +351,37 @@ def main():
                                 } 
                                 for ex in all_exercises
                             ])
+                            
+                            st.session_state.current_df = df
                             st.dataframe(df)
                             
                             # Botones de descarga
                             col1, col2 = st.columns(2)
                             with col1:
-                                csv = df.to_csv(index=False)
+                                csv_data = df.to_csv(index=False)
                                 st.download_button(
                                     label="📥 Descargar CSV",
-                                    data=csv,
+                                    data=csv_data,
                                     file_name="analisis_ejercicios.csv",
-                                    mime="text/csv"
+                                    mime="text/csv",
+                                    key="download_csv_current"
                                 )
                             with col2:
-                                buffer = io.BytesIO()
-                                df.to_excel(buffer, index=False)
-                                buffer.seek(0)
+                                excel_buffer = io.BytesIO()
+                                df.to_excel(excel_buffer, index=False)
+                                excel_buffer.seek(0)
                                 st.download_button(
                                     label="📥 Descargar Excel",
-                                    data=buffer,
+                                    data=excel_buffer,
                                     file_name="analisis_ejercicios.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="download_excel_current"
                                 )
                         
                         st.write(combined_response)
                         st.session_state.messages.append(ChatMessage("assistant", combined_response))
                     else:
-                        st.write("No hay contenido para analizar")  # Debug
+                        st.write("No hay contenido para analizar")
                         st.write("Por favor, asegúrate de que el archivo está cargado correctamente.")
 
                 except Exception as e:
