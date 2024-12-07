@@ -32,14 +32,13 @@ def create_csv_from_exercises(exercises: List[Exercise]) -> str:
 
 def parse_exercises_from_response(response: str) -> List[Exercise]:
     exercises = []
-    # Buscar patrones como "Ejercicio X (Página Y): Descripción" o similar
     exercise_pattern = r'Ejercicio[s]?\s*(\d+)[^\d]*?(?:Página\s*(\d+))?[^\n]*?:(.*?)(?=Ejercicio|\Z)'
     matches = re.finditer(exercise_pattern, response, re.DOTALL | re.IGNORECASE)
     for match in matches:
         number = match.group(1)
         page = match.group(2) if match.group(2) else 0
         description = match.group(3).strip()
-        exercises.append(Exercise(number, int(page), description, ""))  # Estándar se añade después
+        exercises.append(Exercise(number, int(page), description, ""))
     return exercises
 
 def chunk_pages_into_files(pages_content: Dict[int, str], pages_per_chunk: int = 25) -> List[Dict[int, str]]:
@@ -193,12 +192,19 @@ def main():
         layout="wide"
     )
 
+    # Inicialización del estado de la sesión
     if "file_chunks" not in st.session_state:
         st.session_state.file_chunks = []
+    if "pages_content" not in st.session_state:
+        st.session_state.pages_content = {}
+    if "last_file" not in st.session_state:
+        st.session_state.last_file = None
     if "combined_response" not in st.session_state:
         st.session_state.combined_response = ""
     if "exercises" not in st.session_state:
         st.session_state.exercises = []
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
@@ -208,14 +214,9 @@ def main():
 
     st.sidebar.markdown("### 🗑️ Gestión")
     if st.sidebar.button("Limpiar Todo", type="primary", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.file_chunks = []
-        st.session_state.exercises = []
-        st.session_state.combined_response = ""
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
 
     st.title("📚 Análisis de Ejercicios por Estándar")
     st.markdown("""
@@ -238,7 +239,13 @@ def main():
                 content = uploaded_file.getvalue().decode('utf-8')
                 st.write(f"Contenido leído: {len(content)} bytes")  # Debug
                 
-                if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
+                # Verificar si necesitamos reprocesar el archivo
+                need_processing = (
+                    st.session_state.last_file != uploaded_file.name
+                    or not st.session_state.file_chunks
+                )
+                
+                if need_processing:
                     with st.spinner("Procesando archivo..."):
                         st.write("Iniciando procesamiento...")  # Debug
                         pages = parse_text_with_pages(content)
@@ -247,13 +254,16 @@ def main():
                             st.session_state.pages_content = pages
                             st.session_state.file_chunks = chunk_pages_into_files(pages)
                             st.write(f"Chunks creados: {len(st.session_state.file_chunks)}")  # Debug
-                        st.session_state.last_file = uploaded_file.name
-                        st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
+                            st.session_state.last_file = uploaded_file.name
+                            st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
+                else:
+                    st.write(f"Usando chunks existentes: {len(st.session_state.file_chunks)}")  # Debug
 
             except Exception as e:
                 st.error(f"Error al procesar el archivo: {str(e)}")
                 st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
 
+        # Mostrar mensajes anteriores
         for message in st.session_state.messages:
             with st.chat_message(message.role):
                 if message.role == "assistant":
@@ -261,6 +271,7 @@ def main():
                 else:
                     st.write(message.content)
 
+        # Input para el estándar
         if prompt := st.chat_input("Describe el estándar educativo a buscar..."):
             st.session_state.messages.append(ChatMessage("user", prompt))
             with st.chat_message("user"):
@@ -297,8 +308,6 @@ def main():
                             progress_bar.progress(progress)
                         
                         status_text.text("Análisis completado!")
-                        st.session_state.combined_response = combined_response
-                        st.session_state.exercises = all_exercises
                         
                         # Mostrar resultados
                         if all_exercises:
@@ -338,10 +347,8 @@ def main():
                         st.write(combined_response)
                         st.session_state.messages.append(ChatMessage("assistant", combined_response))
                     else:
-                        st.write("No hay contenido para analizar")
-                        simple_response = "Por favor, carga un archivo para analizar."
-                        st.write(simple_response)
-                        st.session_state.messages.append(ChatMessage("assistant", simple_response))
+                        st.write("No hay contenido para analizar")  # Debug
+                        st.write("Por favor, asegúrate de que el archivo está cargado correctamente.")
 
                 except Exception as e:
                     st.error(f"Error en el análisis: {str(e)}")
