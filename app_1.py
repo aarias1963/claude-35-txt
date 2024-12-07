@@ -6,6 +6,7 @@ import io
 import re
 import uuid
 import time
+import traceback
 from typing import Dict, List, Tuple
 
 class ChatMessage:
@@ -37,22 +38,29 @@ def parse_text_with_pages(text):
     lines = text.split('\n')
     st.write(f"Líneas a procesar: {len(lines)}")  # Debug
     
-    for i, line in enumerate(lines):
-        if match := re.match(r'\[Pagina (\d+)\]', line, re.IGNORECASE):
-            if current_page:
-                pages[current_page] = current_header + '\n'.join(current_content)
-            current_page = int(match.group(1))
-            current_header = line + '\n'
-            current_content = []
-            next_page_index = next((j for j, l in enumerate(lines[i+1:], i+1) 
-                                  if re.match(r'\[Pagina \d+\]', l, re.IGNORECASE)), len(lines))
-            current_content = lines[i+1:next_page_index]
-    
-    if current_page and current_content:
-        pages[current_page] = current_header + '\n'.join(current_content)
-    
-    st.write(f"Páginas encontradas: {len(pages)}")  # Debug
-    return pages
+    try:
+        for i, line in enumerate(lines):
+            if match := re.match(r'\[Pagina (\d+)\]', line, re.IGNORECASE):
+                if current_page:
+                    pages[current_page] = current_header + '\n'.join(current_content)
+                current_page = int(match.group(1))
+                current_header = line + '\n'
+                current_content = []
+                next_page_index = next((j for j, l in enumerate(lines[i+1:], i+1) 
+                                      if re.match(r'\[Pagina \d+\]', l, re.IGNORECASE)), len(lines))
+                current_content = lines[i+1:next_page_index]
+                st.write(f"Encontrada página {current_page}")  # Debug
+        
+        if current_page and current_content:
+            pages[current_page] = current_header + '\n'.join(current_content)
+        
+        st.write(f"Páginas encontradas: {len(pages)}")  # Debug
+        st.write(f"Números de página: {sorted(pages.keys())}")  # Debug
+        return pages
+    except Exception as e:
+        st.error(f"Error en parse_text_with_pages: {str(e)}")
+        st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
+        raise e
 
 def extract_text_from_file(uploaded_file):
     try:
@@ -66,13 +74,16 @@ def extract_text_from_file(uploaded_file):
         elif uploaded_file.type == "text/plain":
             text = uploaded_file.getvalue().decode("utf-8")
             st.write(f"Longitud del texto cargado: {len(text)}")  # Debug
+            st.write("Primeras 100 caracteres:")  # Debug
+            st.write(text[:100])  # Debug
             pages = parse_text_with_pages(text)
             return {"text": text, "pages": pages}
         else:
             return "Formato de archivo no soportado"
     except Exception as e:
-        st.error(f"Error en extract_text_from_file: {str(e)}")  # Debug
-        return f"Error al procesar el archivo: {str(e)}"
+        st.error(f"Error en extract_text_from_file: {str(e)}")
+        st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
+        raise e
 
 def detect_and_convert_csv(text):
     lines = text.split('\n')
@@ -205,23 +216,42 @@ def main():
         
         if uploaded_file:
             st.write("Archivo detectado")  # Debug
-            if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
-                with st.spinner("Procesando archivo..."):
-                    st.write(f"Procesando archivo: {uploaded_file.name}")  # Debug
-                    file_content = extract_text_from_file(uploaded_file)
-                    if isinstance(file_content, dict):
-                        st.write("Archivo procesado como diccionario")  # Debug
-                        st.session_state.pages_content = file_content["pages"]
-                        st.session_state.file_chunks = chunk_pages_into_files(file_content["pages"])
-                        st.write(f"Chunks creados: {len(st.session_state.file_chunks)}")  # Debug
-                        for i, chunk in enumerate(st.session_state.file_chunks):
-                            st.write(f"Chunk {i}: páginas {min(chunk.keys())} a {max(chunk.keys())}")  # Debug
-                    else:
-                        st.write("Archivo no procesado correctamente")  # Debug
-                        st.session_state.pages_content = None
-                        st.session_state.file_chunks = []
-                    st.session_state.last_file = uploaded_file.name
-                st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
+            st.write(f"Tipo de archivo: {uploaded_file.type}")  # Debug
+            st.write(f"Nombre de archivo: {uploaded_file.name}")  # Debug
+            
+            try:
+                # Intentar leer el contenido del archivo
+                content = uploaded_file.getvalue()
+                st.write(f"Contenido leído: {len(content)} bytes")  # Debug
+                
+                if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
+                    with st.spinner("Procesando archivo..."):
+                        try:
+                            st.write("Iniciando procesamiento")  # Debug
+                            file_content = extract_text_from_file(uploaded_file)
+                            st.write("Contenido extraído")  # Debug
+                            
+                            if isinstance(file_content, dict):
+                                st.write("Archivo procesado como diccionario")  # Debug
+                                st.write(f"Número de páginas: {len(file_content['pages'])}")  # Debug
+                                st.session_state.pages_content = file_content["pages"]
+                                st.session_state.file_chunks = chunk_pages_into_files(file_content["pages"])
+                                st.write(f"Chunks creados: {len(st.session_state.file_chunks)}")  # Debug
+                            else:
+                                st.write(f"Archivo no procesado correctamente: {file_content}")  # Debug
+                                st.session_state.pages_content = None
+                                st.session_state.file_chunks = []
+                            
+                            st.session_state.last_file = uploaded_file.name
+                            
+                        except Exception as e:
+                            st.error(f"Error durante el procesamiento: {str(e)}")
+                            st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
+                    
+                    st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {str(e)}")
+                st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
 
         for message in st.session_state.messages:
             with st.chat_message(message.role):
@@ -279,11 +309,11 @@ def main():
 
                 except Exception as e:
                     st.error(f"Error en la comunicación con Claude: {str(e)}")
-                    st.write(f"Detalles del error: {str(e)}")  # Debug
+                    st.write(f"Detalles del error: {traceback.format_exc()}")  # Debug
 
     except Exception as e:
         st.error(f"Error de inicialización: {str(e)}")
-        st.write(f"Detalles del error de inicialización: {str(e)}")  # Debug
+        st.write(f"Detalles del error de inicialización: {traceback.format_exc()}")  # Debug
 
 if __name__ == "__main__":
     main()
