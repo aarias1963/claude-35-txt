@@ -32,18 +32,16 @@ def create_csv_from_exercises(exercises: List[Exercise]) -> str:
 
 def parse_exercises_from_response(response: str) -> List[Exercise]:
     exercises = []
-    # Patrón más estricto para capturar ejercicios
-    exercise_pattern = r'Ejercicio\s+(\d+)\s*\(Página\s+(\d+)\)\s*:\s*((?:(?!Ejercicio\s+\d+\s*\(Página).)*)'
+    # Patrón mejorado para capturar ejercicios incluso sin descripción
+    exercise_pattern = r'Ejercicio\s+(\d+)\s*\(Página\s+(\d+)\)\s*:?\s*((?:(?!Ejercicio\s+\d+\s*\(Página).|[\n])*)'
     
     matches = re.finditer(exercise_pattern, response, re.DOTALL | re.IGNORECASE)
     
     for match in matches:
         number = match.group(1)
         page = int(match.group(2))
-        description = match.group(3).strip()
-        # Solo añadir si la descripción no está vacía
-        if description and page > 0:
-            exercises.append(Exercise(number, page, description, ""))
+        description = match.group(3).strip() if match.group(3) else "Sin descripción"
+        exercises.append(Exercise(number, page, description, ""))
             
     return exercises
 
@@ -156,11 +154,12 @@ def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> 
 IMPORTANTE: Para CADA ejercicio que encuentres, usa EXACTAMENTE este formato:
 Ejercicio X (Página Y): Descripción completa del ejercicio
 
-Recuerda:
+Reglas:
 1. SIEMPRE incluir el número de página entre paréntesis
 2. SOLO incluir ejercicios que cumplan con el estándar solicitado
 3. Ser preciso con los números de página y ejercicio
-4. Proporcionar una descripción clara y completa
+4. Proporcionar una descripción completa
+5. Si el ejercicio no tiene descripción, indicarlo como "Sin descripción"
 
 Documento a analizar:
 """
@@ -184,10 +183,11 @@ Documento a analizar:
    Ejercicio X (Página Y): Descripción detallada
 2. SIEMPRE incluye el número de página entre paréntesis
 3. La descripción debe incluir todos los detalles relevantes
-4. Analiza SOLO ejercicios que cumplan con el estándar solicitado
-5. Sé preciso con los números de página y ejercicio
-6. No omitas ningún ejercicio que cumpla con los criterios
-7. Verifica dos veces el número de página antes de incluirlo"""
+4. Si no hay descripción disponible, indica "Sin descripción"
+5. Analiza SOLO ejercicios que cumplan con el estándar solicitado
+6. Sé preciso con los números de página y ejercicio
+7. No omitas ningún ejercicio que cumpla con los criterios
+8. Verifica dos veces el número de página antes de incluirlo"""
     )
     
     return response.content[0].text
@@ -215,6 +215,10 @@ def main():
         st.session_state.messages = []
     if "analysis_complete" not in st.session_state:
         st.session_state.analysis_complete = False
+    if "current_search" not in st.session_state:
+        st.session_state.current_search = None
+    if "last_analysis" not in st.session_state:
+        st.session_state.last_analysis = None
 
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
@@ -273,36 +277,36 @@ def main():
                 st.error(f"Error al procesar el archivo: {str(e)}")
                 st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
 
-        # Mostrar resultados anteriores si existen y el análisis está completo
-        if st.session_state.analysis_complete and st.session_state.current_df is not None:
-            st.write("### Resultados del Análisis Anterior")
-            st.dataframe(st.session_state.current_df)
+        # Mostrar último análisis si existe
+        if st.session_state.last_analysis:
+            st.write("### Último Análisis")
+            st.dataframe(st.session_state.last_analysis['dataframe'])
             
             col1, col2 = st.columns(2)
             with col1:
-                csv_data = st.session_state.current_df.to_csv(index=False)
+                csv_data = st.session_state.last_analysis['dataframe'].to_csv(index=False)
                 st.download_button(
                     label="📥 Descargar CSV",
                     data=csv_data,
                     file_name="analisis_ejercicios.csv",
                     mime="text/csv",
-                    key="download_csv_previous"
+                    key="download_csv_last"
                 )
             with col2:
                 excel_buffer = io.BytesIO()
-                st.session_state.current_df.to_excel(excel_buffer, index=False)
+                st.session_state.last_analysis['dataframe'].to_excel(excel_buffer, index=False)
                 excel_buffer.seek(0)
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=excel_buffer,
                     file_name="analisis_ejercicios.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_excel_previous"
+                    key="download_excel_last"
                 )
 
         # Input para el estándar
         if prompt := st.chat_input("Describe el estándar educativo a buscar..."):
-            st.session_state.analysis_complete = False  # Reiniciar estado del análisis
+            st.session_state.current_search = prompt
             st.session_state.messages.append(ChatMessage("user", prompt))
             with st.chat_message("user"):
                 st.write(prompt)
@@ -339,53 +343,53 @@ def main():
                             progress_bar.progress(progress)
                         
                         status_text.text("Análisis completado!")
-                        st.session_state.analysis_complete = True
                         
                         # Guardar y mostrar resultados
                         if all_exercises:
                             st.write("### Resultados del Análisis")
-                            # Verificar que los ejercicios tengan páginas válidas
-                            valid_exercises = [ex for ex in all_exercises if ex.page > 0]
                             
-                            if valid_exercises:
-                                st.session_state.current_exercises = valid_exercises
-                                
-                                df = pd.DataFrame([{
-                                    'Ejercicio': ex.number,
-                                    'Página': ex.page,
-                                    'Descripción': ex.description,
-                                    'Estándar': prompt
-                                } for ex in valid_exercises])
-                                
-                                # Ordenar por página y número de ejercicio
-                                df['Ejercicio'] = pd.to_numeric(df['Ejercicio'])
-                                df = df.sort_values(['Página', 'Ejercicio'])
-                                
-                                st.session_state.current_df = df
-                                st.dataframe(df)
-                                
-                                # Botones de descarga
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    csv_data = df.to_csv(index=False)
-                                    st.download_button(
-                                        label="📥 Descargar CSV",
-                                        data=csv_data,
-                                        file_name="analisis_ejercicios.csv",
-                                        mime="text/csv",
-                                        key="download_csv_current"
-                                    )
-                                with col2:
-                                    excel_buffer = io.BytesIO()
-                                    df.to_excel(excel_buffer, index=False)
-                                    excel_buffer.seek(0)
-                                    st.download_button(
-                                        label="📥 Descargar Excel",
-                                        data=excel_buffer,
-                                        file_name="analisis_ejercicios.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                        key="download_excel_current"
-                                    )
+                            # Ordenar ejercicios por página y número
+                            df = pd.DataFrame([{
+                                'Ejercicio': ex.number,
+                                'Página': ex.page,
+                                'Descripción': ex.description,
+                                'Estándar': prompt
+                            } for ex in all_exercises])
+                            
+                            df['Ejercicio'] = pd.to_numeric(df['Ejercicio'], errors='coerce')
+                            df = df.sort_values(['Página', 'Ejercicio'])
+                            
+                            # Guardar el análisis actual
+                            st.session_state.last_analysis = {
+                                'exercises': all_exercises,
+                                'dataframe': df,
+                                'prompt': prompt
+                            }
+                            
+                            st.dataframe(df)
+                            
+                            # Botones de descarga
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                csv_data = df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Descargar CSV",
+                                    data=csv_data,
+                                    file_name="analisis_ejercicios.csv",
+                                    mime="text/csv",
+                                    key="download_csv_current"
+                                )
+                            with col2:
+                                excel_buffer = io.BytesIO()
+                                df.to_excel(excel_buffer, index=False)
+                                excel_buffer.seek(0)
+                                st.download_button(
+                                    label="📥 Descargar Excel",
+                                    data=excel_buffer,
+                                    file_name="analisis_ejercicios.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="download_excel_current"
+                                )
                         
                         st.write(combined_response)
                         st.session_state.messages.append(ChatMessage("assistant", combined_response))
