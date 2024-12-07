@@ -219,6 +219,8 @@ def main():
         st.session_state.current_search = None
     if "last_analysis" not in st.session_state:
         st.session_state.last_analysis = None
+    if "last_combined_response" not in st.session_state:
+        st.session_state.last_combined_response = ""
 
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
@@ -282,6 +284,10 @@ def main():
             st.write("### Último Análisis")
             st.dataframe(st.session_state.last_analysis['dataframe'])
             
+            # Generar claves únicas para los botones de descarga
+            csv_key = f"last_csv_{uuid.uuid4()}"
+            excel_key = f"last_excel_{uuid.uuid4()}"
+            
             col1, col2 = st.columns(2)
             with col1:
                 csv_data = st.session_state.last_analysis['dataframe'].to_csv(index=False)
@@ -290,7 +296,7 @@ def main():
                     data=csv_data,
                     file_name="analisis_ejercicios.csv",
                     mime="text/csv",
-                    key="download_csv_last"
+                    key=csv_key
                 )
             with col2:
                 excel_buffer = io.BytesIO()
@@ -301,8 +307,12 @@ def main():
                     data=excel_buffer,
                     file_name="analisis_ejercicios.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_excel_last"
+                    key=excel_key
                 )
+            
+            if st.session_state.last_combined_response:
+                st.write("### Resultados Detallados")
+                st.write(st.session_state.last_combined_response)
 
         # Input para el estándar
         if prompt := st.chat_input("Describe el estándar educativo a buscar..."):
@@ -366,7 +376,14 @@ def main():
                                 'prompt': prompt
                             }
                             
+                            # Guardar la respuesta combinada
+                            st.session_state.last_combined_response = combined_response
+                            
                             st.dataframe(df)
+                            
+                            # Generar claves únicas para los botones de descarga
+                            current_csv_key = f"current_csv_{uuid.uuid4()}"
+                            current_excel_key = f"current_excel_{uuid.uuid4()}"
                             
                             # Botones de descarga
                             col1, col2 = st.columns(2)
@@ -377,7 +394,7 @@ def main():
                                     data=csv_data,
                                     file_name="analisis_ejercicios.csv",
                                     mime="text/csv",
-                                    key="download_csv_current"
+                                    key=current_csv_key
                                 )
                             with col2:
                                 excel_buffer = io.BytesIO()
@@ -388,10 +405,12 @@ def main():
                                     data=excel_buffer,
                                     file_name="analisis_ejercicios.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key="download_excel_current"
+                                    key=current_excel_key
                                 )
+                            
+                            st.write("### Resultados Detallados")
+                            st.write(combined_response)
                         
-                        st.write(combined_response)
                         st.session_state.messages.append(ChatMessage("assistant", combined_response))
                     else:
                         st.write("No hay contenido para analizar")
