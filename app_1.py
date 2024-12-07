@@ -15,22 +15,28 @@ class ChatMessage:
 
 def chunk_pages_into_files(pages_content: Dict[int, str], pages_per_chunk: int = 25) -> List[Dict[int, str]]:
     """Divide el contenido en chunks más pequeños"""
+    st.write("Iniciando chunk_pages_into_files")  # Debug
     pages_list = sorted(pages_content.items())
+    st.write(f"Total páginas a procesar: {len(pages_list)}")  # Debug
     chunks = []
     
     for i in range(0, len(pages_list), pages_per_chunk):
         chunk = dict(pages_list[i:i + pages_per_chunk])
         chunks.append(chunk)
     
+    st.write(f"Chunks creados: {len(chunks)}")  # Debug
     return chunks
 
 def parse_text_with_pages(text):
+    st.write("Iniciando parse_text_with_pages")  # Debug
     pages = {}
     current_page = None
     current_content = []
     current_header = ""
     
     lines = text.split('\n')
+    st.write(f"Líneas a procesar: {len(lines)}")  # Debug
+    
     for i, line in enumerate(lines):
         if match := re.match(r'\[Pagina (\d+)\]', line, re.IGNORECASE):
             if current_page:
@@ -45,10 +51,12 @@ def parse_text_with_pages(text):
     if current_page and current_content:
         pages[current_page] = current_header + '\n'.join(current_content)
     
+    st.write(f"Páginas encontradas: {len(pages)}")  # Debug
     return pages
 
 def extract_text_from_file(uploaded_file):
     try:
+        st.write(f"Procesando archivo tipo: {uploaded_file.type}")  # Debug
         if uploaded_file.type == "application/pdf":
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
             text = ""
@@ -57,11 +65,13 @@ def extract_text_from_file(uploaded_file):
             return text
         elif uploaded_file.type == "text/plain":
             text = uploaded_file.getvalue().decode("utf-8")
+            st.write(f"Longitud del texto cargado: {len(text)}")  # Debug
             pages = parse_text_with_pages(text)
             return {"text": text, "pages": pages}
         else:
             return "Formato de archivo no soportado"
     except Exception as e:
+        st.error(f"Error en extract_text_from_file: {str(e)}")  # Debug
         return f"Error al procesar el archivo: {str(e)}"
 
 def detect_and_convert_csv(text):
@@ -194,13 +204,20 @@ def main():
         client = anthropic.Client(api_key=api_key)
         
         if uploaded_file:
+            st.write("Archivo detectado")  # Debug
             if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
                 with st.spinner("Procesando archivo..."):
+                    st.write(f"Procesando archivo: {uploaded_file.name}")  # Debug
                     file_content = extract_text_from_file(uploaded_file)
                     if isinstance(file_content, dict):
+                        st.write("Archivo procesado como diccionario")  # Debug
                         st.session_state.pages_content = file_content["pages"]
                         st.session_state.file_chunks = chunk_pages_into_files(file_content["pages"])
+                        st.write(f"Chunks creados: {len(st.session_state.file_chunks)}")  # Debug
+                        for i, chunk in enumerate(st.session_state.file_chunks):
+                            st.write(f"Chunk {i}: páginas {min(chunk.keys())} a {max(chunk.keys())}")  # Debug
                     else:
+                        st.write("Archivo no procesado correctamente")  # Debug
                         st.session_state.pages_content = None
                         st.session_state.file_chunks = []
                     st.session_state.last_file = uploaded_file.name
@@ -220,7 +237,9 @@ def main():
 
             with st.chat_message("assistant"):
                 try:
+                    st.write(f"Estado de los chunks: {len(st.session_state.file_chunks)}")  # Debug
                     if st.session_state.file_chunks:
+                        st.write("Iniciando procesamiento de chunks")  # Debug
                         combined_response = ""
                         progress_bar = st.progress(0)
                         status_text = st.empty()
@@ -229,6 +248,7 @@ def main():
                             chunk_start = min(chunk.keys())
                             chunk_end = max(chunk.keys())
                             chunk_info = f"páginas {chunk_start} a {chunk_end}"
+                            st.write(f"Procesando chunk {i}: {chunk_info}")  # Debug
                             
                             status_text.text(f"Analizando {chunk_info}...")
                             
@@ -248,6 +268,7 @@ def main():
                         detect_and_convert_csv(combined_response)
                         st.session_state.messages.append(ChatMessage("assistant", combined_response))
                     else:
+                        st.write("No hay chunks para procesar")  # Debug
                         simple_response = client.messages.create(
                             model="claude-3-5-sonnet-20241022",
                             max_tokens=4096,
@@ -258,9 +279,11 @@ def main():
 
                 except Exception as e:
                     st.error(f"Error en la comunicación con Claude: {str(e)}")
+                    st.write(f"Detalles del error: {str(e)}")  # Debug
 
     except Exception as e:
         st.error(f"Error de inicialización: {str(e)}")
+        st.write(f"Detalles del error de inicialización: {str(e)}")  # Debug
 
 if __name__ == "__main__":
     main()
