@@ -5,14 +5,24 @@ import PyPDF2
 import io
 import re
 import uuid
+import time
+from typing import Dict, List, Tuple
 
 class ChatMessage:
     def __init__(self, role: str, content: str):
         self.role = role
         self.content = content
 
-def chunk_content(text, max_chars=500):
-    return text[:max_chars]
+def chunk_pages_into_files(pages_content: Dict[int, str], pages_per_chunk: int = 25) -> List[Dict[int, str]]:
+    """Divide el contenido en chunks más pequeños"""
+    pages_list = sorted(pages_content.items())
+    chunks = []
+    
+    for i in range(0, len(pages_list), pages_per_chunk):
+        chunk = dict(pages_list[i:i + pages_per_chunk])
+        chunks.append(chunk)
+    
+    return chunks
 
 def parse_text_with_pages(text):
     pages = {}
@@ -111,12 +121,47 @@ def detect_and_convert_csv(text):
             st.error(f"Error al procesar datos tabulares: {str(e)}")
             st.text('\n'.join(block))
 
+def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> str:
+    """Consulta un chunk específico"""
+    formatted_messages = []
+    content_message = f"""Analizando {chunk_info}:
+    
+    """
+    for page, content in sorted(chunk.items()):
+        content_message += f"{content}\n\n"
+    
+    formatted_messages.append({
+        "role": "user",
+        "content": content_message
+    })
+    formatted_messages.append({"role": "user", "content": prompt})
+    
+    response = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=4096,
+        messages=formatted_messages,
+        system="""Eres un asistente especializado en análisis de documentos. REGLAS:
+1. Los ejercicios pertenecen a la página indicada en la etiqueta [Pagina X] que los precede
+2. Busca en TODAS las páginas proporcionadas
+3. Especifica el número exacto de página para cada ejercicio
+4. Mantén respuestas concisas pero completas"""
+    )
+    
+    return response.content[0].text
+
 def main():
     st.set_page_config(
         page_title="Chat con Claude",
         page_icon="🤖",
         layout="wide"
     )
+
+    if "file_chunks" not in st.session_state:
+        st.session_state.file_chunks = []
+    if "current_chunk" not in st.session_state:
+        st.session_state.current_chunk = 0
+    if "combined_response" not in st.session_state:
+        st.session_state.combined_response = ""
 
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
@@ -127,12 +172,13 @@ def main():
     st.sidebar.markdown("### 🗑️ Gestión del Chat")
     if st.sidebar.button("Limpiar Conversación", type="primary", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.file_chunks = []
+        st.session_state.current_chunk = 0
+        st.session_state.combined_response = ""
         st.rerun()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "file_content" not in st.session_state:
-        st.session_state.file_content = ""
 
     st.title("💬 Chat con Claude 3.5 Sonnet")
     st.markdown("""
@@ -152,11 +198,11 @@ def main():
                 with st.spinner("Procesando archivo..."):
                     file_content = extract_text_from_file(uploaded_file)
                     if isinstance(file_content, dict):
-                        st.session_state.file_content = file_content["text"]
                         st.session_state.pages_content = file_content["pages"]
+                        st.session_state.file_chunks = chunk_pages_into_files(file_content["pages"])
                     else:
-                        st.session_state.file_content = file_content
                         st.session_state.pages_content = None
+                        st.session_state.file_chunks = []
                     st.session_state.last_file = uploaded_file.name
                 st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
 
@@ -174,54 +220,41 @@ def main():
 
             with st.chat_message("assistant"):
                 try:
-                    formatted_messages = []
-                    
-                    if st.session_state.file_content:
-                        if hasattr(st.session_state, 'pages_content') and st.session_state.pages_content:
-                            pages_list = sorted(st.session_state.pages_content.items())
-                            max_chunk_size = 500
-                            total_pages = len(pages_list)
+                    if st.session_state.file_chunks:
+                        combined_response = ""
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        for i, chunk in enumerate(st.session_state.file_chunks):
+                            chunk_start = min(chunk.keys())
+                            chunk_end = max(chunk.keys())
+                            chunk_info = f"páginas {chunk_start} a {chunk_end}"
                             
-                            num_chunks = (total_pages + 4) // 5
-                            for i in range(num_chunks):
-                                start_idx = i * 5
-                                end_idx = min(start_idx + 5, total_pages)
-                                
-                                current_pages = dict(pages_list[start_idx:end_idx])
-                                content_message = f"\n--- Grupo de páginas {min(current_pages.keys())} a {max(current_pages.keys())} ---\n\n"
-                                
-                                for page, content in current_pages.items():
-                                    content_message += f"{content[:max_chunk_size]}\n\n"
-                                
-                                formatted_messages.append({
-                                    "role": "user",
-                                    "content": content_message
-                                })
-                        else:
-                            content_message = "Contenido del documento:\n\n"
-                            content_message += chunk_content(st.session_state.file_content, max_chars=50000)
-                            formatted_messages.append({
-                                "role": "user",
-                                "content": content_message
-                            })
-
-                    formatted_messages.append({"role": "user", "content": prompt})
-
-                    with st.spinner('Analizando...'):
-                        response = client.messages.create(
+                            status_text.text(f"Analizando {chunk_info}...")
+                            
+                            if i > 0:
+                                status_text.text(f"Esperando para procesar siguiente chunk...")
+                                time.sleep(65)  # Espera poco más de un minuto
+                            
+                            response = query_chunk(client, chunk, prompt, chunk_info)
+                            if response.strip():
+                                combined_response += f"\n\nResultados de {chunk_info}:\n{response}"
+                            
+                            progress = (i + 1) / len(st.session_state.file_chunks)
+                            progress_bar.progress(progress)
+                        
+                        status_text.text("Análisis completado!")
+                        st.session_state.combined_response = combined_response
+                        detect_and_convert_csv(combined_response)
+                        st.session_state.messages.append(ChatMessage("assistant", combined_response))
+                    else:
+                        simple_response = client.messages.create(
                             model="claude-3-5-sonnet-20241022",
                             max_tokens=4096,
-                            messages=formatted_messages,
-                            system="""Eres un asistente especializado en análisis de documentos. REGLAS:
-1. Los ejercicios pertenecen a la página indicada en la etiqueta [Pagina X] que los precede
-2. Busca en TODAS las páginas proporcionadas
-3. Especifica el número exacto de página para cada ejercicio
-4. Mantén respuestas concisas pero completas"""
+                            messages=[{"role": "user", "content": prompt}]
                         )
-
-                        assistant_response = response.content[0].text
-                        detect_and_convert_csv(assistant_response)
-                        st.session_state.messages.append(ChatMessage("assistant", assistant_response))
+                        st.write(simple_response.content[0].text)
+                        st.session_state.messages.append(ChatMessage("assistant", simple_response.content[0].text))
 
                 except Exception as e:
                     st.error(f"Error en la comunicación con Claude: {str(e)}")
