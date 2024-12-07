@@ -33,33 +33,30 @@ def parse_text_with_pages(text):
     pages = {}
     current_page = None
     current_content = []
-    current_header = ""
     
     lines = text.split('\n')
     st.write(f"Líneas a procesar: {len(lines)}")  # Debug
     
     try:
-        # Patrón más flexible para detectar etiquetas de página
-        page_pattern = r'\[(?:Pagina|Página|PAGINA|PÁGINA|pagina|página|Pag\.|Pág\.) *(\d+)\]'
+        page_pattern = r'\[Página (\d+)\]'  # Patrón específico que encontramos en el archivo
         
         for i, line in enumerate(lines):
-            if match := re.match(page_pattern, line, re.IGNORECASE):
+            match = re.match(page_pattern, line, re.UNICODE)  # Usamos UNICODE para manejar 'á'
+            if match:
                 if current_page:
-                    pages[current_page] = current_header + '\n'.join(current_content)
+                    pages[current_page] = '\n'.join(current_content)
                 current_page = int(match.group(1))
-                current_header = line + '\n'
                 current_content = []
-                next_page_index = next((j for j, l in enumerate(lines[i+1:], i+1) 
-                                      if re.match(page_pattern, l, re.IGNORECASE)), len(lines))
-                current_content = lines[i+1:next_page_index]
-                st.write(f"Encontrada página {current_page}")  # Debug
+                st.write(f"Procesando página {current_page}")  # Debug
+            elif current_page is not None:
+                current_content.append(line)
         
         if current_page and current_content:
-            pages[current_page] = current_header + '\n'.join(current_content)
+            pages[current_page] = '\n'.join(current_content)
         
-        st.write(f"Páginas encontradas: {len(pages)}")  # Debug
+        st.write(f"Total páginas procesadas: {len(pages)}")  # Debug
         if pages:
-            st.write(f"Números de página: {sorted(pages.keys())}")  # Debug
+            st.write(f"Números de páginas encontradas: {sorted(pages.keys())}")  # Debug
         return pages
     except Exception as e:
         st.error(f"Error en parse_text_with_pages: {str(e)}")
@@ -130,7 +127,7 @@ def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> 
     
     """
     for page, content in sorted(chunk.items()):
-        content_message += f"{content}\n\n"
+        content_message += f"[Página {page}]\n{content}\n\n"
     
     formatted_messages.append({
         "role": "user",
@@ -143,7 +140,7 @@ def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> 
         max_tokens=4096,
         messages=formatted_messages,
         system="""Eres un asistente especializado en análisis de documentos. REGLAS:
-1. Los ejercicios pertenecen a la página indicada en la etiqueta [Pagina X] que los precede
+1. Los ejercicios pertenecen a la página indicada en la etiqueta [Página X] que los precede
 2. Busca en TODAS las páginas proporcionadas
 3. Especifica el número exacto de página para cada ejercicio
 4. Mantén respuestas concisas pero completas"""
@@ -209,24 +206,6 @@ def main():
                 st.write("Primeras 10 líneas del archivo:")  # Debug
                 for line in content.split('\n')[:10]:
                     st.write(f"LÍNEA: {line}")  # Debug
-                
-                # Buscar diferentes variantes de etiquetas de página
-                patterns = [
-                    r'\[Pagina (\d+)\]',
-                    r'\[Página (\d+)\]',
-                    r'\[PAGINA (\d+)\]',
-                    r'\[PÁGINA (\d+)\]',
-                    r'\[pagina (\d+)\]',
-                    r'\[página (\d+)\]',
-                    r'\[Pag[. ]*(\d+)\]',
-                    r'\[Pág[. ]*(\d+)\]'
-                ]
-                
-                for pattern in patterns:
-                    matches = re.findall(pattern, content, re.IGNORECASE)
-                    if matches:
-                        st.write(f"Patrón encontrado '{pattern}': {len(matches)} coincidencias")  # Debug
-                        st.write(f"Primeros números de página encontrados: {matches[:5]}")  # Debug
                 
                 if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
                     with st.spinner("Procesando archivo..."):
