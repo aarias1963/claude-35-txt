@@ -47,14 +47,14 @@ def parse_text_with_pages(text):
             match = re.match(page_pattern, line, re.UNICODE)
             if match:
                 if current_page:
-                    pages[current_page] = '\n'.join(current_content)
+                    pages[current_page] = '\n'.join(current_content).encode('utf-8').decode('utf-8')
                 current_page = int(match.group(1))
                 current_content = []
             elif current_page is not None:
                 current_content.append(line)
         
         if current_page and current_content:
-            pages[current_page] = '\n'.join(current_content)
+            pages[current_page] = '\n'.join(current_content).encode('utf-8').decode('utf-8')
         
         return pages
     except Exception as e:
@@ -65,13 +65,13 @@ def parse_exercises_from_response(response: str) -> List[Exercise]:
     exercises = []
     exercise_pattern = r'Ejercicio\s+(\d+)\s*\(Página\s+(\d+)\)\s*:?\s*((?:(?!Ejercicio\s+\d+\s*\(Página).|[\n])*)'
     
-    matches = re.finditer(exercise_pattern, response, re.DOTALL | re.IGNORECASE)
+    matches = re.finditer(exercise_pattern, response, re.DOTALL | re.IGNORECASE | re.UNICODE)
     
     for match in matches:
         number = match.group(1)
         page = int(match.group(2))
         description = match.group(3).strip() if match.group(3) else "Sin descripción"
-        exercises.append(Exercise(number, page, description, ""))
+        exercises.append(Exercise(number, page, description.encode('utf-8').decode('utf-8'), ""))
             
     return exercises
 
@@ -79,19 +79,22 @@ def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> 
     formatted_messages = []
     content_message = f"""Analizando {chunk_info}.
 IMPORTANTE: Para CADA ejercicio que encuentres, usa EXACTAMENTE este formato:
-Ejercicio X (Página Y): Descripción completa del ejercicio
+Ejercicio X (Pagina Y): Descripción completa del ejercicio
 
 Documento a analizar:
-"""
+""".encode('utf-8').decode('utf-8')
     
     for page, content in sorted(chunk.items()):
-        content_message += f"[Página {page}]\n{content}\n\n"
+        content_message += f"[Página {page}]\n{content}\n\n".encode('utf-8').decode('utf-8')
     
     formatted_messages.append({
         "role": "user",
         "content": content_message
     })
-    formatted_messages.append({"role": "user", "content": prompt})
+    formatted_messages.append({
+        "role": "user", 
+        "content": prompt.encode('utf-8').decode('utf-8')
+    })
     
     response = client.messages.create(
         model="claude-3-5-sonnet-20241022",
@@ -100,11 +103,11 @@ Documento a analizar:
         system="""Eres un asistente especializado en análisis de ejercicios educativos. REGLAS:
 
 1. Para CADA ejercicio encontrado, usa EXACTAMENTE este formato:
-   Ejercicio X (Página Y): Descripción detallada
+   Ejercicio X (Pagina Y): Descripción detallada
 2. SIEMPRE incluye el número de página entre paréntesis
 3. La descripción debe ser clara y completa
 4. Si no hay descripción, indica "Sin descripción"
-5. Analiza SOLO ejercicios que cumplan con el estándar solicitado"""
+5. Analiza SOLO ejercicios que cumplan con el estándar solicitado""".encode('utf-8').decode('utf-8')
     )
     
     return response.content[0].text
@@ -208,10 +211,11 @@ def main():
                         # Botones de descarga y nuevo análisis
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            csv_data = df.to_csv(index=False)
+                            # Usar utf-8-sig para manejar BOM en Excel
+                            csv_data = df.to_csv(index=False, encoding='utf-8-sig')
                             if st.download_button(
                                 label="📥 Descargar CSV",
-                                data=csv_data,
+                                data=csv_data.encode('utf-8-sig'),
                                 file_name="analisis_ejercicios.csv",
                                 mime="text/csv"
                             ):
@@ -220,7 +224,7 @@ def main():
                         
                         with col2:
                             excel_buffer = io.BytesIO()
-                            df.to_excel(excel_buffer, index=False)
+                            df.to_excel(excel_buffer, index=False, engine='openpyxl')
                             excel_buffer.seek(0)
                             if st.download_button(
                                 label="📥 Descargar Excel",
@@ -245,6 +249,7 @@ def main():
 
             except Exception as e:
                 st.error(f"Error en el análisis: {str(e)}")
+                st.write(f"Detalles del error: {traceback.format_exc()}")  # Debug
 
     except Exception as e:
         st.error(f"Error de inicialización: {str(e)}")
