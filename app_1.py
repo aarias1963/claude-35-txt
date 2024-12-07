@@ -62,29 +62,6 @@ def parse_text_with_pages(text):
         st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
         raise e
 
-def extract_text_from_file(uploaded_file):
-    try:
-        st.write(f"Procesando archivo tipo: {uploaded_file.type}")  # Debug
-        if uploaded_file.type == "application/pdf":
-            pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            text = ""
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
-            return text
-        elif uploaded_file.type == "text/plain":
-            text = uploaded_file.getvalue().decode("utf-8")
-            st.write(f"Longitud del texto cargado: {len(text)}")  # Debug
-            st.write("Primeras 100 caracteres:")  # Debug
-            st.write(text[:100])  # Debug
-            pages = parse_text_with_pages(text)
-            return {"text": text, "pages": pages}
-        else:
-            return "Formato de archivo no soportado"
-    except Exception as e:
-        st.error(f"Error en extract_text_from_file: {str(e)}")
-        st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
-        raise e
-
 def detect_and_convert_csv(text):
     lines = text.split('\n')
     csv_blocks = []
@@ -220,37 +197,30 @@ def main():
             st.write(f"Nombre de archivo: {uploaded_file.name}")  # Debug
             
             try:
-                # Intentar leer el contenido del archivo
-                content = uploaded_file.getvalue()
+                # Leer contenido
+                content = uploaded_file.getvalue().decode('utf-8')
                 st.write(f"Contenido leído: {len(content)} bytes")  # Debug
+                
+                # Verificar si hay etiquetas de página
+                page_tags = re.findall(r'\[Pagina \d+\]', content, re.IGNORECASE)
+                st.write(f"Etiquetas de página encontradas: {len(page_tags)}")  # Debug
+                if page_tags:
+                    st.write(f"Primeras 5 etiquetas encontradas: {page_tags[:5]}")  # Debug
                 
                 if "last_file" not in st.session_state or st.session_state.last_file != uploaded_file.name:
                     with st.spinner("Procesando archivo..."):
-                        try:
-                            st.write("Iniciando procesamiento")  # Debug
-                            file_content = extract_text_from_file(uploaded_file)
-                            st.write("Contenido extraído")  # Debug
-                            
-                            if isinstance(file_content, dict):
-                                st.write("Archivo procesado como diccionario")  # Debug
-                                st.write(f"Número de páginas: {len(file_content['pages'])}")  # Debug
-                                st.session_state.pages_content = file_content["pages"]
-                                st.session_state.file_chunks = chunk_pages_into_files(file_content["pages"])
-                                st.write(f"Chunks creados: {len(st.session_state.file_chunks)}")  # Debug
-                            else:
-                                st.write(f"Archivo no procesado correctamente: {file_content}")  # Debug
-                                st.session_state.pages_content = None
-                                st.session_state.file_chunks = []
-                            
-                            st.session_state.last_file = uploaded_file.name
-                            
-                        except Exception as e:
-                            st.error(f"Error durante el procesamiento: {str(e)}")
-                            st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
-                    
-                    st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
+                        st.write("Iniciando procesamiento de páginas...")  # Debug
+                        pages = parse_text_with_pages(content)
+                        if pages:
+                            st.write(f"Páginas procesadas: {len(pages)}")  # Debug
+                            st.session_state.pages_content = pages
+                            st.session_state.file_chunks = chunk_pages_into_files(pages)
+                            st.write(f"Chunks creados: {len(st.session_state.file_chunks)}")  # Debug
+                        st.session_state.last_file = uploaded_file.name
+                        st.sidebar.success(f"Archivo cargado: {uploaded_file.name}")
+
             except Exception as e:
-                st.error(f"Error al leer el archivo: {str(e)}")
+                st.error(f"Error al procesar el archivo: {str(e)}")
                 st.write(f"Traza del error: {traceback.format_exc()}")  # Debug
 
         for message in st.session_state.messages:
