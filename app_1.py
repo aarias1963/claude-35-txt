@@ -115,9 +115,11 @@ def main():
         layout="wide"
     )
 
-    # Inicialización mínima del estado
+    # Inicialización del estado
     if "file_chunks" not in st.session_state:
         st.session_state.file_chunks = []
+    if 'analysis_done' not in st.session_state:
+        st.session_state.analysis_done = False
 
     st.sidebar.title("⚙️ Configuración")
     api_key = st.sidebar.text_input("API Key de Anthropic", type="password")
@@ -154,6 +156,8 @@ def main():
 
         # Input para el estándar
         if prompt := st.chat_input("Describe el estándar educativo a buscar..."):
+            if st.session_state.analysis_done:
+                st.session_state.analysis_done = False
             try:
                 if st.session_state.file_chunks:
                     # Iniciar análisis
@@ -201,26 +205,36 @@ def main():
                         
                         st.dataframe(df)
                         
-                        # Botones de descarga
-                        col1, col2 = st.columns(2)
+                        # Botones de descarga y nuevo análisis
+                        col1, col2, col3 = st.columns(3)
                         with col1:
                             csv_data = df.to_csv(index=False)
-                            st.download_button(
+                            if st.download_button(
                                 label="📥 Descargar CSV",
                                 data=csv_data,
                                 file_name="analisis_ejercicios.csv",
                                 mime="text/csv"
-                            )
+                            ):
+                                st.session_state.analysis_done = True
+                                st.rerun()
+                        
                         with col2:
                             excel_buffer = io.BytesIO()
                             df.to_excel(excel_buffer, index=False)
                             excel_buffer.seek(0)
-                            st.download_button(
+                            if st.download_button(
                                 label="📥 Descargar Excel",
                                 data=excel_buffer,
                                 file_name="analisis_ejercicios.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
+                            ):
+                                st.session_state.analysis_done = True
+                                st.rerun()
+
+                        with col3:
+                            if st.button("🔄 Nuevo Análisis"):
+                                st.session_state.analysis_done = False
+                                st.rerun()
                         
                         st.write("### Resultados Detallados")
                         st.write(combined_response)
