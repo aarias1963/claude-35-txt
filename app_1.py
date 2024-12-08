@@ -89,6 +89,8 @@ Donde Z es un valor del 1 al 5 que indica el grado de idoneidad del ejercicio co
 2 = Poco idóneo (cumple mínimamente con el estándar)
 1 = Muy poco idóneo (apenas cumple con el estándar)
 
+Es OBLIGATORIO incluir la valoración de idoneidad para cada ejercicio.
+
 Documento a analizar:
 """.encode('utf-8').decode('utf-8')
     
@@ -110,14 +112,13 @@ Documento a analizar:
         messages=formatted_messages,
         system="""Eres un asistente especializado en análisis de ejercicios educativos. REGLAS:
 
-1. Para CADA ejercicio encontrado, usa EXACTAMENTE este formato:
-   Ejercicio X (Pagina Y) [Idoneidad: Z]: Descripción detallada
-2. SIEMPRE incluye el número de página entre paréntesis
-3. SIEMPRE incluye la valoración de idoneidad entre corchetes (1-5)
-4. La descripción debe ser clara y completa
-5. Si no hay descripción, indica "Sin descripción"
-6. Analiza SOLO ejercicios que cumplan con el estándar solicitado
-7. Evalúa cuidadosamente la idoneidad de cada ejercicio con el estándar""".encode('utf-8').decode('utf-8')
+1. Para CADA ejercicio encontrado, DEBES usar EXACTAMENTE este formato:
+   Ejercicio X (Página Y) [Idoneidad: Z]: Descripción
+   donde Z DEBE ser un número del 1 al 5
+2. Es OBLIGATORIO incluir la valoración de idoneidad [Idoneidad: Z]
+3. La valoración DEBE ser un número entero entre 1 y 5
+4. NO omitas la valoración en ningún ejercicio
+5. Analiza SOLO ejercicios que cumplan con el estándar solicitado""".encode('utf-8').decode('utf-8')
     )
     
     return response.content[0].text
@@ -211,23 +212,25 @@ def main():
                             st.session_state.analysis_done = False
                             st.rerun()
                         
+                        # Crear DataFrame con el orden de columnas deseado
                         df = pd.DataFrame([{
                             'Ejercicio': ex.number,
                             'Página': ex.page,
-                            'Descripción': ex.description,
-                            'Idoneidad': ex.suitability
+                            'Idoneidad': ex.suitability,
+                            'Descripción': ex.description
                         } for ex in all_exercises])
                         
                         # Convertir Ejercicio a numérico y ordenar por Idoneidad (desc), Página y Ejercicio (asc)
                         df['Ejercicio'] = pd.to_numeric(df['Ejercicio'], errors='coerce')
                         df = df.sort_values(['Idoneidad', 'Página', 'Ejercicio'], 
-                                        ascending=[False, True, True])
+                                          ascending=[False, True, True])
                         
                         st.dataframe(df)
                         
                         # Botones de descarga en dos columnas
                         col1, col2 = st.columns(2)
                         with col1:
+                            # Asegurar que el CSV mantiene el orden
                             csv_data = df.to_csv(index=False, encoding='utf-8-sig')
                             if st.download_button(
                                 label="📥 Descargar CSV",
@@ -240,6 +243,7 @@ def main():
                         
                         with col2:
                             excel_buffer = io.BytesIO()
+                            # Mantener el orden en el Excel también
                             df.to_excel(excel_buffer, index=False, engine='openpyxl')
                             excel_buffer.seek(0)
                             if st.download_button(
