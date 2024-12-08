@@ -16,11 +16,11 @@ class ChatMessage:
         self.content = content
 
 class Exercise:
-    def __init__(self, number: str, page: int, description: str, standard: str):
+    def __init__(self, number: str, page: int, description: str, suitability: int):
         self.number = number
         self.page = page
         self.description = description
-        self.standard = standard
+        self.suitability = suitability
 
 def chunk_pages_into_files(pages_content: Dict[int, str], pages_per_chunk: int = 25) -> List[Dict[int, str]]:
     st.write("Iniciando procesamiento...")  # Debug
@@ -63,15 +63,16 @@ def parse_text_with_pages(text):
 
 def parse_exercises_from_response(response: str) -> List[Exercise]:
     exercises = []
-    exercise_pattern = r'Ejercicio\s+(\d+)\s*\(Página\s+(\d+)\)\s*:?\s*((?:(?!Ejercicio\s+\d+\s*\(Página).|[\n])*)'
+    exercise_pattern = r'Ejercicio\s+(\d+)\s*\(Página\s+(\d+)\)\s*\[Idoneidad:\s*(\d+)\]\s*:\s*((?:(?!Ejercicio\s+\d+\s*\(Página).|[\n])*)'
     
     matches = re.finditer(exercise_pattern, response, re.DOTALL | re.IGNORECASE | re.UNICODE)
     
     for match in matches:
         number = match.group(1)
         page = int(match.group(2))
-        description = match.group(3).strip() if match.group(3) else "Sin descripción"
-        exercises.append(Exercise(number, page, description.encode('utf-8').decode('utf-8'), ""))
+        suitability = int(match.group(3))
+        description = match.group(4).strip() if match.group(4) else "Sin descripción"
+        exercises.append(Exercise(number, page, description.encode('utf-8').decode('utf-8'), suitability))
             
     return exercises
 
@@ -79,7 +80,14 @@ def query_chunk(client, chunk: Dict[int, str], prompt: str, chunk_info: str) -> 
     formatted_messages = []
     content_message = f"""Analizando {chunk_info}.
 IMPORTANTE: Para CADA ejercicio que encuentres, usa EXACTAMENTE este formato:
-Ejercicio X (Pagina Y): Descripción completa del ejercicio
+Ejercicio X (Pagina Y) [Idoneidad: Z]: Descripción completa del ejercicio
+
+Donde Z es un valor del 1 al 5 que indica el grado de idoneidad del ejercicio con el estándar solicitado:
+5 = Muy idóneo (cumple perfectamente con el estándar)
+4 = Bastante idóneo (cumple bien con el estándar)
+3 = Moderadamente idóneo (cumple parcialmente con el estándar)
+2 = Poco idóneo (cumple mínimamente con el estándar)
+1 = Muy poco idóneo (apenas cumple con el estándar)
 
 Documento a analizar:
 """.encode('utf-8').decode('utf-8')
@@ -103,11 +111,13 @@ Documento a analizar:
         system="""Eres un asistente especializado en análisis de ejercicios educativos. REGLAS:
 
 1. Para CADA ejercicio encontrado, usa EXACTAMENTE este formato:
-   Ejercicio X (Pagina Y): Descripción detallada
+   Ejercicio X (Pagina Y) [Idoneidad: Z]: Descripción detallada
 2. SIEMPRE incluye el número de página entre paréntesis
-3. La descripción debe ser clara y completa
-4. Si no hay descripción, indica "Sin descripción"
-5. Analiza SOLO ejercicios que cumplan con el estándar solicitado""".encode('utf-8').decode('utf-8')
+3. SIEMPRE incluye la valoración de idoneidad entre corchetes (1-5)
+4. La descripción debe ser clara y completa
+5. Si no hay descripción, indica "Sin descripción"
+6. Analiza SOLO ejercicios que cumplan con el estándar solicitado
+7. Evalúa cuidadosamente la idoneidad de cada ejercicio con el estándar""".encode('utf-8').decode('utf-8')
     )
     
     return response.content[0].text
@@ -196,22 +206,28 @@ def main():
                     if all_exercises:
                         st.write("### Resultados del Análisis")
                         
+                        # Botón de nuevo análisis al principio
+                        if st.button("🔄 Nuevo Análisis"):
+                            st.session_state.analysis_done = False
+                            st.rerun()
+                        
                         df = pd.DataFrame([{
                             'Ejercicio': ex.number,
                             'Página': ex.page,
                             'Descripción': ex.description,
-                            'Estándar': prompt
+                            'Idoneidad': ex.suitability
                         } for ex in all_exercises])
                         
+                        # Convertir Ejercicio a numérico y ordenar por Idoneidad (desc), Página y Ejercicio (asc)
                         df['Ejercicio'] = pd.to_numeric(df['Ejercicio'], errors='coerce')
-                        df = df.sort_values(['Página', 'Ejercicio'])
+                        df = df.sort_values(['Idoneidad', 'Página', 'Ejercicio'], 
+                                        ascending=[False, True, True])
                         
                         st.dataframe(df)
                         
-                        # Botones de descarga y nuevo análisis
-                        col1, col2, col3 = st.columns(3)
+                        # Botones de descarga en dos columnas
+                        col1, col2 = st.columns(2)
                         with col1:
-                            # Usar utf-8-sig para manejar BOM en Excel
                             csv_data = df.to_csv(index=False, encoding='utf-8-sig')
                             if st.download_button(
                                 label="📥 Descargar CSV",
@@ -233,11 +249,6 @@ def main():
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             ):
                                 st.session_state.analysis_done = True
-                                st.rerun()
-
-                        with col3:
-                            if st.button("🔄 Nuevo Análisis"):
-                                st.session_state.analysis_done = False
                                 st.rerun()
                         
                         st.write("### Resultados Detallados")
