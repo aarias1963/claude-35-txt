@@ -141,6 +141,11 @@ def main():
     st.sidebar.markdown("### 📄 Cargar Archivo")
     uploaded_file = st.sidebar.file_uploader("Sube un archivo PDF o TXT", type=['pdf', 'txt'])
 
+    st.sidebar.markdown("### 🗑️ Gestión")
+    if st.sidebar.button("🔄 Nuevo Análisis", type="primary", use_container_width=True):
+        st.session_state.analysis_done = False
+        st.rerun()
+
     st.title("📚 Análisis de Ejercicios por Estándar")
     st.markdown("""
     Esta aplicación analiza ejercicios educativos y los clasifica según estándares específicos.
@@ -206,11 +211,6 @@ def main():
                     # Mostrar resultados
                     if all_exercises:
                         st.write("### Resultados del Análisis")
-                        
-                        # Botón de nuevo análisis al principio
-                        if st.button("🔄 Nuevo Análisis"):
-                            st.session_state.analysis_done = False
-                            st.rerun()
                         
                         # Crear DataFrame con el orden de columnas deseado
                         df = pd.DataFrame([{
