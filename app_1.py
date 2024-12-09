@@ -214,8 +214,8 @@ def main():
                         
                         # Crear DataFrame con el orden de columnas deseado
                         df = pd.DataFrame([{
-                            'Ejercicio': ex.number,
                             'Página': ex.page,
+                            'Ejercicio': ex.number,
                             'Idoneidad': ex.suitability,
                             'Descripción': ex.description
                         } for ex in all_exercises])
